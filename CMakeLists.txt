@@ -24,6 +24,11 @@ target_link_libraries(motor_node PUBLIC bupt_can)
 
 ament_target_dependencies(motor_node PUBLIC rclcpp std_msgs)
 
+add_executable(send_node test/send_node.cpp)
+target_include_directories(send_node PRIVATE include)
+
+ament_target_dependencies(send_node PUBLIC rclcpp std_msgs)
+
 ament_package()
 
-install(TARGETS motor_node DESTINATION lib/${PROJECT_NAME})
+install(TARGETS motor_node send_node DESTINATION lib/${PROJECT_NAME})

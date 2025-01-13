@@ -124,7 +124,6 @@ class Motor_Node : public rclcpp::Node
  private:
   void send_motor(const std_msgs::msg::Float32MultiArray msg)
   {
-    const float *steerArr = msg.data.data();
     can.can_start();
 
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
@@ -139,8 +138,8 @@ class Motor_Node : public rclcpp::Node
     mi_motor_on(can, 1);
     mi_motor_on(can, 2);
 
-    mi_motorctrl(can, 1, steerArr[0]);
-    mi_motorctrl(can, 2, steerArr[1]);
+    mi_motorctrl(can, 1, msg.data[0]);
+    mi_motorctrl(can, 2, msg.data[1]);
   }
 
   rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr motor_sub;
