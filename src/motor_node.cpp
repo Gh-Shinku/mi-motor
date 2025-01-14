@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cstring>
 #include <functional>
+#include <iomanip>
 #include <iostream>
 #include <memory>
 #include <rclcpp/rclcpp.hpp>
@@ -39,9 +40,10 @@ enum _COMM_TYPE
 
 void print_info(const std::shared_ptr<can_frame> &frame)
 {
-  std::cout << "id" << frame->can_id << std::endl;
-  std::cout << "dlc" << frame->can_dlc << std::endl;
-  std::cout << "data";
+  std::cout << std::showbase << std::hex;
+  std::cout << "id: " << frame->can_id << "\t";
+  std::cout << "dlc: " << frame->can_dlc << "\t";
+  std::cout << "data: ";
   for (int i = 0; i < frame->can_dlc; i++)
   {
     std::cout << frame->data[i] << " ";
@@ -49,17 +51,17 @@ void print_info(const std::shared_ptr<can_frame> &frame)
   std::cout << std::endl;
 }
 
-void mi_motor_on(Can &can, uint8_t can_motor_id)
+void mi_motor_on(std::unique_ptr<Can> &can, uint8_t can_motor_id)
 {
   uint32_t can_exd_id = 0;
   can_exd_id |= (TYPE_3 & 0x1f) << 24;
   can_exd_id |= (CAN_MASTER & 0xffff) << 8;
   can_exd_id |= (can_motor_id & 0xff);
   std::array<uint8_t, 8> Txdata = {0};
-  can.send_can(can_exd_id, Can::CAN_ID_EXT, 8, Txdata);
+  can->send_can(can_exd_id, Can::CAN_ID_EXT, 8, Txdata);
 }
 
-void mi_motor_zero(Can &can, uint8_t can_motor_id)
+void mi_motor_zero(std::unique_ptr<Can> &can, uint8_t can_motor_id)
 {
   uint32_t can_exd_id = 0;
   can_exd_id |= (6 & 0x1f) << 24;
@@ -67,11 +69,11 @@ void mi_motor_zero(Can &can, uint8_t can_motor_id)
   can_exd_id |= (can_motor_id & 0xff);
   std::array<uint8_t, 8> Txdata = {0};
   Txdata[0] = 1;
-  can.send_can(can_exd_id, Can::CAN_ID_EXT, 8, Txdata);
+  can->send_can(can_exd_id, Can::CAN_ID_EXT, 8, Txdata);
 }
 
 /* 切换电机控制模式 */
-void mi_motor_mode(Can &can, uint8_t can_motor_id, uint32_t mode)
+void mi_motor_mode(std::unique_ptr<Can> &can, uint8_t can_motor_id, uint32_t mode)
 {
   uint32_t can_exd_id = 0;
   can_exd_id |= (TYPE_18 & 0x1f) << 24;
@@ -88,11 +90,11 @@ void mi_motor_mode(Can &can, uint8_t can_motor_id, uint32_t mode)
   TxData[6] = (mode >> 16) & 0xFF;
   TxData[7] = (mode >> 24) & 0xFF;
 
-  can.send_can(can_exd_id, Can::CAN_ID_EXT, 8, TxData);
+  can->send_can(can_exd_id, Can::CAN_ID_EXT, 8, TxData);
 }
 
 /* 控制电机角度 */
-void mi_motorctrl(Can &can, uint8_t motor_canid, float angle)
+void mi_motorctrl(std::unique_ptr<Can> &can, uint8_t motor_canid, float angle)
 {
   uint32_t can_exd_id = 0;
 
@@ -108,24 +110,15 @@ void mi_motorctrl(Can &can, uint8_t motor_canid, float angle)
 
   memcpy(&Txdata[4], &angle, sizeof(angle));  // 将 float 转换为字节存储在 TxData 中
 
-  can.send_can(can_exd_id, Can::CAN_ID_EXT, 8, Txdata);
+  can->send_can(can_exd_id, Can::CAN_ID_EXT, 8, Txdata);
 }
 
 class Motor_Node : public rclcpp::Node
 {
  public:
-  Motor_Node() : Node("Motor_Node"), can("can0")
+  Motor_Node() : Node("Motor_Node"), can(std::make_unique<Can>("can0"))
   {
-    motor_sub = this->create_subscription<std_msgs::msg::Float32MultiArray>(
-        "/topic", 10,
-        std::bind(&Motor_Node::send_motor, this, std::placeholders::_1));  // TODO: 运行前记得修改成具体的 topic
-  }
-
- private:
-  void send_motor(const std_msgs::msg::Float32MultiArray msg)
-  {
-    can.can_start();
-
+    can->can_start();
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
     mi_motor_mode(can, 1, MODE_POS);
     mi_motor_mode(can, 2, MODE_POS);
@@ -137,13 +130,21 @@ class Motor_Node : public rclcpp::Node
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
     mi_motor_on(can, 1);
     mi_motor_on(can, 2);
+    motor_sub = this->create_subscription<std_msgs::msg::Float32MultiArray>(
+        "/topic", 10,
+        std::bind(&Motor_Node::send_motor, this, std::placeholders::_1));  // TODO: 运行前记得修改成具体的 topic
+  }
 
+ private:
+  void send_motor(const std_msgs::msg::Float32MultiArray msg)
+  {
+    std::cout << "motor1: " << msg.data[0] << "\tmotor2: " << msg.data[1] << std::endl;
     mi_motorctrl(can, 1, msg.data[0]);
     mi_motorctrl(can, 2, msg.data[1]);
   }
 
   rclcpp::Subscription<std_msgs::msg::Float32MultiArray>::SharedPtr motor_sub;
-  Can can;
+  std::unique_ptr<Can> can;
 };
 
 int main(int argc, char *argv[])
